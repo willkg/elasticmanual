@@ -6,15 +6,19 @@ import textwrap
 import subprocess
 
 USAGE = 'pulldocs.py <guide-directory>'
-MANUALSOURCE = 'manualsource'
+HEADERS = '_headers'
+FOOTERS = '_footers'
 GUIDE = 'guide'
+MANUALSOURCE = '_manualsource'
 
 TEMPLATE = """
-===========
- %(title)s
-===========
+%(title)s
 
-.. include:: %(filename)s
+%(header)s
+
+%(rst)s
+
+%(footer)s
 """
 
 
@@ -76,8 +80,11 @@ def build_file_list(src_directory):
     return file_list
 
 
-def convert_file(filepath, src, dst):
-    print filepath, src, dst
+def convert_file(filepath, src):
+    dst = source_file(filepath)
+    if not os.path.exists(os.path.dirname(dst)):
+        os.makedirs(os.path.dirname(dst))
+
     exec_program([
             '/usr/bin/pandoc',
             '--from=textile',
@@ -87,18 +94,70 @@ def convert_file(filepath, src, dst):
             '%s' % src])
 
 
-def build_file_skeleton(root, filepath):
-    filename = os.path.join(root, GUIDE, filepath.replace(os.sep, '_'))
-    filename = os.path.splitext(filename) + '.rst'
+def get_root():
+    return os.getcwd()
+
+
+def guide_file(filepath):
+    filename = os.path.join(get_root(), GUIDE, filepath)
+    filename = os.path.splitext(filename)[0] + '.rst'
+    return filename
+
+
+def source_file(filepath):
+    filename = os.path.join(get_root(), MANUALSOURCE, filepath)
+    filename = os.path.splitext(filename)[0] + '.rst'
+    return filename
+
+
+def get_header(filepath):
+    filename = os.path.join(get_root(), HEADERS, filepath)
+    filename = os.path.splitext(filename)[0] + '.rst'
     if os.path.exists(filename):
+        return open(filename, 'r').read()
+
+    return ''
+
+
+def get_footer(filepath):
+    filename = os.path.join(get_root(), FOOTERS, filepath)
+    filename = os.path.splitext(filename)[0] + '.rst'
+    if os.path.exists(filename):
+        return open(filename, 'r').read()
+
+    return ''
+
+
+def build_file_skeleton(filepath):
+    dst = guide_file(filepath)
+    manual_src = source_file(filepath)
+    if os.path.exists(dst):
         return
 
+    if not os.path.exists(os.path.dirname(dst)):
+        os.makedirs(os.path.dirname(dst))
+
+    data = open(manual_src, 'r').readlines()
+    title = [t for t in data if t.startswith('title: ')]
+    if title:
+        title = title[0][7:].strip()
+    else:
+        title = 'unknown'
+
+    title = (('=' * (len(title) + 2)) + '\n' + 
+             ' ' + title + ' ' + '\n' + 
+             ('=' * (len(title) + 2)) +
+             '\n')
+
+
     t = TEMPLATE % {
-        'title': os.path.split(os.path.splitext(filename)[0])[-1],
-        'filename': os.path.join(MANUALSOURCE, filepath)
+        'title': title,
+        'header': get_header(filepath),
+        'rst': ''.join(data),
+        'footer': get_footer(filepath),
         }
 
-    f = open(filename, 'w')
+    f = open(dst, 'w')
     f.write(t)
     f.close()
 
@@ -124,22 +183,15 @@ def main(argv):
         return 1
 
     file_list = build_file_list(src_directory)
-    print 'found %d files' % len(file_list)
-
-    root = os.getcwd()
-    guide_dir = os.path.join(root, MANUALSOURCE)
+    out('found %d files' % len(file_list))
 
     for src in file_list:
+        out("working on %s...." % src, wrap=False)
         filepath = src[len(src_directory):]
-        dst = os.path.join(guide_dir, filepath)
-        dst = os.path.splitext(dst)[0] + '.rst'
-        dst_dir = os.path.dirname(dst)
 
-        if not os.path.exists(dst_dir):
-            os.makedirs(dst_dir)
-        convert_file(filepath, src, dst)
+        convert_file(filepath, src)
 
-        build_file_skeleton(root, filepath)
+        build_file_skeleton(filepath)
 
     return 0
 
